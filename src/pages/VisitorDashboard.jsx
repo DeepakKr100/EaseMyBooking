@@ -5,7 +5,7 @@ import { useAuth } from "../context/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { loadRazorpay } from "../utils/loadRazorpay";
 import ReviewModal from "../components/ReviewModal";
-import { toast } from "react-hot-toast"; // FIX: named import
+import { toast } from "react-hot-toast"; // keep named import as in your file
 
 export default function VisitorDashboard() {
   const [upcoming, setUpcoming] = useState([]);
@@ -14,14 +14,25 @@ export default function VisitorDashboard() {
   const navigate = useNavigate();
   const [reviewFor, setReviewFor] = useState({ open: false, placeId: null, placeName: "" });
 
+  // ---- date helpers ----
+  const startOfDay = (d) => {
+    const t = new Date(d);
+    t.setHours(0, 0, 0, 0);
+    return t;
+  };
+  const today = startOfDay(new Date());
+  const visitDay = (b) => startOfDay(b.visitDate);
+  const isToday = (b) => visitDay(b).getTime() === today.getTime();
+  const isPast = (b) => visitDay(b) < today;
+  const isPaid = (b) => !!b.paymentConfirmed;
+
   const load = async () => {
     try {
       const { data } = await api.get("/Bookings/my");
-      const today = new Date(); today.setHours(0,0,0,0);
       const up = [], pa = [];
       for (const b of data) {
-        const d = new Date(b.visitDate); d.setHours(0,0,0,0);
-        if (d >= today) up.push(b); else pa.push(b);
+        if (isPast(b)) pa.push(b);
+        else up.push(b); // includes today & future
       }
       setUpcoming(up);
       setPast(pa);
@@ -85,17 +96,14 @@ export default function VisitorDashboard() {
     }
   };
 
-  // Only allow review when the booking is PAID and in the PAST
-  const isPastPaid = (b) => {
-    const today = new Date(); today.setHours(0,0,0,0);
-    const d = new Date(b.visitDate); d.setHours(0,0,0,0);
-    return b.paymentConfirmed && d < today;
-  };
+  // Past + paid → can review
+  const isPastPaid = (b) => isPast(b) && isPaid(b);
 
   return (
     <div>
       <h2 className="text-2xl font-bold mb-3">My Bookings</h2>
 
+      {/* UPCOMING (includes today & future) */}
       <h3 className="text-xl font-semibold mb-2">Upcoming</h3>
       <div className="grid gap-3 md:grid-cols-2">
         {upcoming.length === 0 ? (
@@ -106,12 +114,19 @@ export default function VisitorDashboard() {
               key={b.bookingId}
               booking={b}
               onPayNow={handlePayNow}
-              // NOTE: Do NOT pass onWriteReview for upcoming bookings
+              // Show review button ONLY if it's today's booking AND paid
+              onWriteReview={
+                isToday(b) && isPaid(b)
+                  ? ({ placeId, placeName }) =>
+                      setReviewFor({ open: true, placeId, placeName })
+                  : undefined
+              }
             />
           ))
         )}
       </div>
 
+      {/* PAST */}
       <h3 className="text-xl font-semibold mt-6 mb-2">Past</h3>
       <div className="grid gap-3 md:grid-cols-2">
         {past.length === 0 ? (
@@ -121,7 +136,6 @@ export default function VisitorDashboard() {
             <BookingCard
               key={b.bookingId}
               booking={b}
-              // Show review button only for paid, past bookings
               onWriteReview={
                 isPastPaid(b)
                   ? ({ placeId, placeName }) =>
